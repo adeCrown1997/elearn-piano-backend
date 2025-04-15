@@ -1,6 +1,6 @@
 const Joi = require('joi');
 
-// Validation schemas for user signup, signin, and password change
+// Validation schemas for user signup, signin, password change and forgot password
 
 // Validation schema for user signup
 exports.signupSchema = Joi.object({
@@ -73,16 +73,17 @@ exports.acceptCodeSchema = Joi.object({
 
 // Validation schema for changing password
 exports.changePasswordSchema = Joi.object({
+    oldPassword: Joi.string()
+        .min(8)
+        .max(60)
+        .required()
+        .pattern(new RegExp(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/)),
 	newPassword: Joi.string()
         .min(8)
         .max(60)
 		.required()
 		.pattern(new RegExp(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/)),
-	oldPassword: Joi.string()
-        .min(8)
-        .max(60)
-        .required()
-        .pattern(new RegExp(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/)),
+
 });
 
 // Validation schema for sending forgot password code
@@ -99,3 +100,5 @@ exports.acceptFPCodeSchema = Joi.object({
 		.required()
 		.pattern(new RegExp(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/)),
 });
+
+  

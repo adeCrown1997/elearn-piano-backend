@@ -1,6 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { signupSchema, signinSchema, acceptCodeSchema, changePasswordSchema,	
-	acceptFPCodeSchema } = require('../middlewares/validator');
+	acceptFPCodeSchema } = require('../middlewares/userValidator');
 const User = require('../models/userModel');
 const { doHash, doHashValidation, hmacProcess } = require('../utils/hashing');
 const transport = require('../middlewares/sendMail');
@@ -41,39 +41,38 @@ exports.signup = async (req, res) => {
 	}
 };
 
-// This function handles user signin
+// This function handles user and admin signin
 exports.signin = async (req, res) => {
 	const { email, password } = req.body;
 	try {
-		const { error, value } = signinSchema.validate({ email, password });
+		const { error } = signinSchema.validate({ email, password });
 		if (error) {
-			return res
-				.status(401)
-				.json({ success: false, message: error.details[0].message });
+			return res.status(401).json({ success: false, message: error.details[0].message });
 		}
 
-		const existingUser = await User.findOne({ email }).select('+password');
+		const existingUser = await User.findOne({ email }).select('+password +role');
+
 		if (!existingUser) {
-			return res
-				.status(401)
-				.json({ success: false, message: 'User does not exists!' });
+			return res.status(401).json({ success: false, message: 'User does not exist!' });
 		}
-		const result = await doHashValidation(password, existingUser.password);
-		if (!result) {
-			return res
-				.status(401)
-				.json({ success: false, message: 'Invalid credentials!' });
+
+		
+		console.log('Existing User:', existingUser);
+
+		const isPasswordValid = await doHashValidation(password, existingUser.password);
+		if (!isPasswordValid) {
+			return res.status(401).json({ success: false, message: 'Invalid credentials!' });
 		}
+
 		const token = jwt.sign(
 			{
 				userId: existingUser._id,
 				email: existingUser.email,
+				role: existingUser.role, 
 				verified: existingUser.verified,
 			},
 			process.env.TOKEN_SECRET,
-			{
-				expiresIn: '8h',
-			}
+			{ expiresIn: '8h' }
 		);
 
 		res
@@ -85,12 +84,15 @@ exports.signin = async (req, res) => {
 			.json({
 				success: true,
 				token,
-				message: 'logged in successfully',
+				role: existingUser.role,
+				message: 'Logged in successfully',
 			});
 	} catch (error) {
 		console.log(error);
+		res.status(500).json({ success: false, message: 'Something went wrong.' });
 	}
 };
+
 
 // This function handles user signout
 exports.signout = async (req, res) => {
@@ -164,7 +166,7 @@ exports.verifyVerificationCode = async (req, res) => {
 		if (existingUser.verified) {
 			return res
 				.status(400)
-				.json({ success: false, message: 'you are already verified!' });
+				.json({ success: false, message: 'You are already verified!' });
 		}
 
 		if (
@@ -173,13 +175,13 @@ exports.verifyVerificationCode = async (req, res) => {
 		) {
 			return res
 				.status(400)
-				.json({ success: false, message: 'something is wrong with the code!' });
+				.json({ success: false, message: 'Something is wrong with the code!' });
 		}
 
-		if (Date.now() - existingUser.verificationCodeValidation > 10 * 60 * 1000) {
+		if (Date.now() - existingUser.verificationCodeValidation > 5 * 60 * 1000) {
 			return res
 				.status(400)
-				.json({ success: false, message: 'code has been expired!' });
+				.json({ success: false, message: 'Code has expired!' });
 		}
 
 		const hashedCodeValue = hmacProcess(
@@ -223,6 +225,7 @@ exports.changePassword = async (req, res) => {
 				.status(401)
 				.json({ success: false, message: 'You are not verified user!' });
 		}
+		console.log('REQ.USER:', req.user);
 		const existingUser = await User.findOne({ _id: userId }).select(
 			'+password'
 		);
