@@ -37,6 +37,7 @@ const courseSchema = new mongoose.Schema(
       type: String,
       enum: ['beginner', 'intermediate', 'advanced'],
       required: [true, 'Course level is required'],
+      lower: true,
     },
   },
   { timestamps: true }
