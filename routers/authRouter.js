@@ -3,6 +3,7 @@ const authController = require('../controllers/authController');
 const  requireRole  = require('../middlewares/authorizeRole');
 const { isAuthenticated } = require('../middlewares/identification');
 const courseController = require('../controllers/courseController');
+const enrollmentController = require('../controllers/enrollmentController');
 
 const router = express.Router();
 
@@ -31,5 +32,15 @@ router.get('/contents/module/:moduleId', courseController.getAllContentsByModule
 router.get('/contents/:id', courseController.getContentById);
 router.put('/contents/:id', isAuthenticated, requireRole("admin"), courseController.updateContentById);
 router.delete('/contents/:id', isAuthenticated, requireRole("admin"), courseController.deleteContentById);
+
+// Enrollment routes
+router.post('/enroll/:courseId', isAuthenticated, enrollmentController.enrollInCourse);
+router.get('/my-enrollments', isAuthenticated, enrollmentController.getUserEnrollments);
+router.delete('/unenroll/:courseId', isAuthenticated, enrollmentController.unenrollFromCourse);
+  
+//view users enrolled in courses
+router.get('/admin/enrollments', isAuthenticated, requireRole("admin"), enrollmentController.getEnrolledUsersForAdmin);
+router.get('/admin/enrollments/:courseId', isAuthenticated, requireRole("admin"), enrollmentController.getEnrollmentsByCourseId);
+router.get('/admin/enrollments/user/:userId', isAuthenticated, requireRole("admin"), enrollmentController.getEnrollmentsByUserId);
 
 module.exports = router;
