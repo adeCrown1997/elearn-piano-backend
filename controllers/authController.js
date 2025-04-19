@@ -104,42 +104,44 @@ exports.signout = async (req, res) => {
 
 // This function handles sending verification code to the user
 exports.sendVerificationCode = async (req, res) => {
-	const { email } = req.body;
-	try {
-		const existingUser = await User.findOne({ email });
-		if (!existingUser) {
-			return res
-				.status(404)
-				.json({ success: false, message: 'User does not exists!' });
-		}
-		if (existingUser.verified) {
-			return res
-				.status(400)
-				.json({ success: false, message: 'You are already verified!' });
-		}
+    const { email } = req.body;
+    try {
+        const existingUser = await User.findOne({ email });
+        if (!existingUser) {
+            return res
+                .status(404)
+                .json({ success: false, message: 'User does not exist!' });
+        }
+        if (existingUser.verified) {
+            return res
+                .status(400)
+                .json({ success: false, message: 'You are already verified!' });
+        }
 
-		const codeValue = Math.floor(Math.random() * 1000000).toString().padStart(6, '0');
-		let info = await transport.sendMail({
-			from: process.env.NODE_CODE_SENDING_EMAIL_ADDRESS,
-			to: existingUser.email,
-			subject: 'verification code',
-			html: '<h1>' + codeValue + '</h1>',
-		});
+        // Generate a 6-digit verification code
+        const codeValue = Math.floor(100000 + Math.random() * 900000).toString();
 
-		if (info.accepted[0] === existingUser.email) {
-			const hashedCodeValue = hmacProcess(
-				codeValue,
-				process.env.HMAC_VERIFICATION_CODE_SECRET
-			);
-			existingUser.verificationCode = hashedCodeValue;
-			existingUser.verificationCodeValidation = Date.now();
-			await existingUser.save();
-			return res.status(200).json({ success: true, message: 'Code sent!' });
-		}
-		res.status(400).json({ success: false, message: 'Code sent failed!' });
-	} catch (error) {
-		console.log(error);
-	}
+        // Send the verification email
+        await transport({
+            to: existingUser.email,
+            subject: 'Verification Code',
+            html: `<p>Your verification code is:  <strong> ${codeValue} </strong></p>`,
+        });
+
+        // Hash the verification code and save it to the user
+        const hashedCodeValue = hmacProcess(
+            codeValue,
+            process.env.HMAC_VERIFICATION_CODE_SECRET
+        );
+        existingUser.verificationCode = hashedCodeValue;
+        existingUser.verificationCodeValidation = Date.now();
+        await existingUser.save();
+
+        return res.status(200).json({ success: true, message: 'Verification code sent successfully!' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: 'Failed to send verification code', error });
+    }
 };
 
 // This function handles verifying the verification code sent to the user
@@ -196,11 +198,11 @@ exports.verifyVerificationCode = async (req, res) => {
 			await existingUser.save();
 			return res
 				.status(200)
-				.json({ success: true, message: 'your account has been verified!' });
+				.json({ success: true, message: 'Your account has been verified!' });
 		}
 		return res
 			.status(400)
-			.json({ success: false, message: 'unexpected occured!!' });
+			.json({ success: false, message: 'Unexpected occured!!' });
 	} catch (error) {
 		console.log(error);
 	}
@@ -253,39 +255,39 @@ exports.changePassword = async (req, res) => {
 
 // This function handles sending a forgot password code to the user
 exports.sendForgotPasswordCode = async (req, res) => {
-	const { email } = req.body;
-	try {
-		const existingUser = await User.findOne({ email });
-		if (!existingUser) {
-			return res
-				.status(404)
-				.json({ success: false, message: 'User does not exists!' });
-		}
+    const { email } = req.body;
+    try {
+        const existingUser = await User.findOne({ email });
+        if (!existingUser) {
+            return res
+                .status(404)
+                .json({ success: false, message: 'User does not exist!' });
+        }
 
-		const codeValue = Math.floor(Math.random() * 1000000)
-			.toString()
-			.padStart(6, '0');
-		let info = await transport.sendMail({
-			from: process.env.NODE_CODE_SENDING_EMAIL_ADDRESS,
-			to: existingUser.email,
-			subject: 'Forgot password code',
-			html: '<h1>' + codeValue + '</h1>',
-		});
+        // Generate a 6-digit forgot password code
+        const codeValue = Math.floor(100000 + Math.random() * 900000).toString();
 
-		if (info.accepted[0] === existingUser.email) {
-			const hashedCodeValue = hmacProcess(
-				codeValue,
-				process.env.HMAC_VERIFICATION_CODE_SECRET
-			);
-			existingUser.forgotPasswordCode = hashedCodeValue;
-			existingUser.forgotPasswordCodeValidation = Date.now();
-			await existingUser.save();
-			return res.status(200).json({ success: true, message: 'Code sent!' });
-		}
-		res.status(400).json({ success: false, message: 'Code sent failed!' });
-	} catch (error) {
-		console.log(error);
-	}
+        // Send the forgot password email
+        await transport({
+            to: existingUser.email,
+            subject: 'Reset Password Code',	
+			html: `<p>Your password reset code is:  <strong> ${codeValue} </strong></p>`,		
+        });
+
+        // Hash the forgot password code and save it to the user
+        const hashedCodeValue = hmacProcess(
+            codeValue,
+            process.env.HMAC_VERIFICATION_CODE_SECRET
+        );
+        existingUser.forgotPasswordCode = hashedCodeValue;
+        existingUser.forgotPasswordCodeValidation = Date.now();
+        await existingUser.save();
+
+        return res.status(200).json({ success: true, message: 'Code sent!' });
+    } catch (error) {
+        console.error(error);
+        res.status(500).json({ success: false, message: 'Failed to send code', error });
+    }
 };
 
 // This function handles verifying the forgot password code sent to the user

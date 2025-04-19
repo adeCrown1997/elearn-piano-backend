@@ -12,12 +12,22 @@ router.post('/signup', authController.signup);
 router.post('/signin', authController.signin);
 router.post('/signout', isAuthenticated, authController.signout);
 
+// Verification routes
+router.patch('/send-verification-code', isAuthenticated, authController.sendVerificationCode);
+router.patch('/verify-verification-code', isAuthenticated, authController.verifyVerificationCode);
+router.patch('/change-password', isAuthenticated, authController.changePassword);
+router.patch('/send-forgot-password-code', authController.sendForgotPasswordCode);
+router.patch('/verify-forgot-password-code', authController.verifyForgotPasswordCode);
+
 // Course routes
 router.post('/create-course', isAuthenticated, requireRole("admin"), courseController.createCourse);
 router.get('/courses', courseController.getAllCourses);
 router.get('/courses/:id', courseController.getCourseById);
 router.put('/courses/:id', isAuthenticated, requireRole("admin"), courseController.updateCourseById);
 router.delete('/courses/:id', isAuthenticated, requireRole("admin"), courseController.deleteCourseById);
+router.get('/courses/grouped-by-category', courseController.groupCoursesByCategory);
+router.get('/courses/grouped-by-level', courseController.groupCoursesByLevel);
+router.get('/couses/grouped-by-price', courseController.groupCoursesByPrice)
 
 // Module routes
 router.post('/create-module', isAuthenticated, requireRole("admin"), courseController.createModule);
@@ -42,5 +52,9 @@ router.delete('/unenroll/:courseId', isAuthenticated, enrollmentController.unenr
 router.get('/admin/enrollments', isAuthenticated, requireRole("admin"), enrollmentController.getEnrolledUsersForAdmin);
 router.get('/admin/enrollments/:courseId', isAuthenticated, requireRole("admin"), enrollmentController.getEnrollmentsByCourseId);
 router.get('/admin/enrollments/user/:userId', isAuthenticated, requireRole("admin"), enrollmentController.getEnrollmentsByUserId);
+
+// Send live session notification to enrolled users
+router.post('/admin/courses/:courseId/notify', isAuthenticated, requireRole("admin"), enrollmentController.notifyEnrolledUsers);
+
 
 module.exports = router;

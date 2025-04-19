@@ -83,6 +83,86 @@ exports.deleteCourseById = async (req, res) => {
 	}
 };
 
+// Group courses by category
+exports.groupCoursesByCategory = async (req, res) => {
+	try {
+		const groupedCourses = await Course.aggregate([
+			{
+				$group: {
+					_id: "$category",
+					courses: { $push: "$$ROOT" }
+				}
+			},
+			{
+				$project: {
+					category: "$category",
+					courses: 1,
+					_id: 0
+				}
+			}
+		]);
+
+		res.status(200).json({ success: true, groupedCourses });
+	} catch (error) {
+		console.error(error);
+		res.status(500).json({ success: false, message: "Server error!" });
+	}
+};
+
+// Group courses by level
+exports.groupCoursesByLevel = async (req, res) => {
+	try {
+		const groupedCourses = await Course.aggregate([
+			{
+				$group: {
+					_id: "$level",
+					courses: { $push: "$$ROOT" }
+				}
+			},
+			{
+				$project: {
+					level: "$level",
+					courses: 1,
+					_id: 0
+				}
+			}
+		]);
+
+		res.status(200).json({ success: true, groupedCourses });
+	} catch (error) {
+		console.error(error);
+		res.status(500).json({ success: false, message: "Server error!" });
+	}
+};
+
+// Group courses by price (free or paid)
+exports.groupCoursesByPrice = async (req, res) => {
+	try {
+		const groupedCourses = await Course.aggregate([
+			{
+				$group: {
+					_id: {
+						$cond: { if: { $eq: ["$price", 0] }, then: "Free", else: "Paid" }
+					},
+					courses: { $push: "$$ROOT" }
+				}
+			},
+			{
+				$project: {
+					priceCategory: "$price",
+					courses: 1,
+					_id: 0
+				}
+			}
+		]);
+
+		res.status(200).json({ success: true, groupedCourses });
+	} catch (error) {
+		console.error(error);
+		res.status(500).json({ success: false, message: "Server error!" });
+	}
+};
+
 // Create module
 exports.createModule = async (req, res) => {
     const { error } = moduleCreationSchema.validate(req.body);

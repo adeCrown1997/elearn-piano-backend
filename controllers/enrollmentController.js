@@ -1,6 +1,7 @@
 const Enrollment = require('../models/enrollmentModel');
 const Course = require('../models/courseModel');
 const User = require('../models/userModel');
+const sendMail = require('../middlewares/sendMail');
 
 // Enroll in a course
 exports.enrollInCourse = async (req, res) => {
@@ -155,6 +156,64 @@ exports.getEnrollmentsByUserId = async (req, res) => {
       success: true,
       totalEnrolled: enrollments.length,
       data: enrollments,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Server error',
+      error: error.message,
+    });
+  }
+};
+
+exports.notifyEnrolledUsers = async (req, res) => {
+  try {
+    const adminId = req.user.userId;
+    const { courseId } = req.params;
+    const { subject, message, link } = req.body;
+
+    const course = await Course.findOne({ _id: courseId, createdBy: adminId });
+    if (!course) {
+      return res.status(403).json({
+        success: false,
+        message: 'You are not authorized to notify students for this course',
+      });
+    }
+
+    const enrollments = await Enrollment.find({ course: courseId }).populate('user', 'firstName lastName email');
+
+    if (!enrollments.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'No enrolled users found for this course',
+      });
+    }
+
+    await Promise.all( 
+      enrollments.map(({ user }) => {
+        const emailContent = `
+          <p>Hello <strong>${user.firstName}</strong>,</p>
+    
+          <p>${message}</p>
+    
+          <p><a href="${link}" target="_blank">Click here to join the live session</a></p>
+    
+          <br>
+          <p>Regards,<br>Admin, E-Learn Piano</p>
+        `;
+    
+        return sendMail({
+          to: user.email,
+          subject: subject || `Live Session for ${course.title}`,
+          html: emailContent,  // ✅ use `html` not `text`
+        });
+      })
+    );
+   
+
+    res.status(200).json({
+      success: true,
+      message: 'Notifications sent successfully to all enrolled users.',
     });
   } catch (error) {
     res.status(500).json({
