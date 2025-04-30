@@ -1,7 +1,5 @@
 const User = require('../models/userModel');
 const Enrollment = require('../models/enrollmentModel');
-const Course = require('../models/courseModel');
-const Notification = require('../models/notificationModel');
 const Comment = require('../models/commentModel');
 const mongoose = require('mongoose');
 
@@ -16,14 +14,7 @@ exports.getDashboard = async (req, res) => {
       .populate('course', 'title description category level price duration slug')
       .select('enrolledAt progress');
 
-    // Fetch recent notifications (last 5, unread first)
-    const notifications = await Notification.find({ user: req.user.userId })
-      .populate('course', 'title')
-      .sort({ isRead: 1, createdAt: -1 })
-      .limit(5)
-      .select('title message link type isRead createdAt');
-
-    // Fetch learning analytics
+      // Fetch learning analytics
     const commentsPosted = await Comment.countDocuments({ user: req.user.userId });
     const likesReceived = await Comment.aggregate([
       { $match: { user: new mongoose.Types.ObjectId(req.user.userId) } },
@@ -45,7 +36,6 @@ exports.getDashboard = async (req, res) => {
       data: {
         profile: user,
         enrollments,
-        notifications,
         analytics: {
           coursesEnrolled: enrollments.length,
           commentsPosted,

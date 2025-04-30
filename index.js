@@ -6,7 +6,6 @@ const cookieParser = require('cookie-parser');
 const mongoose = require('mongoose');
 const authRouter = require('./routers/authRouter');
 const adminRouter = require('./routers/adminRouter');
-// const notificationRouter = require('./routers/notificationRouter');
 const courseRouter = require('./routers/courseRouter');
 const commentRouter = require('./routers/commentRouter');
 const enrollmentRouter = require('./routers/enrollmentRouter');
@@ -41,7 +40,6 @@ app.get('/', (req, res) => {
 
 app.use('/api/auth', authRouter);
 app.use('/api/auth/admin', adminRouter);
-// app.use('/api/auth', notificationRouter);
 app.use('/api/auth', courseRouter);
 app.use('/api/auth', commentRouter);
 app.use('/api/auth', enrollmentRouter);
