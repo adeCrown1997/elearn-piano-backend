@@ -1,17 +1,17 @@
 const { createHmac } = require('crypto');
 const { hash, compare } = require('bcryptjs');
 
-exports.doHash = (value, saltValue) => {
-	const result = hash(value, saltValue);
-	return result;
+exports.doHash = async (value, saltRounds = 10) => {
+  const result = await hash(value, saltRounds);
+  return result;
 };
 
-exports.doHashValidation = (value, hashedValue) => {
-	const result = compare(value, hashedValue);
-	return result;
+exports.doHashValidation = async (value, hashedValue) => {
+  const result = await compare(value, hashedValue);
+  return result;
 };
 
 exports.hmacProcess = (value, key) => {
-	const result = createHmac('sha256', key).update(value).digest('hex');
-	return result;
+  const result = createHmac('sha256', key).update(String(value)).digest('hex');
+  return result;
 };

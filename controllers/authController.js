@@ -1,98 +1,283 @@
 const jwt = require('jsonwebtoken');
-const { signupSchema, signinSchema, acceptCodeSchema, changePasswordSchema,	
-	acceptFPCodeSchema } = require('../middlewares/userValidator');
+const bcrypt = require('bcryptjs');
+const crypto = require('crypto');
+const winston = require('winston');
+const { signupSchema, signinSchema, changePasswordSchema, acceptFPCodeSchema } = require('../middlewares/userValidator');
 const User = require('../models/userModel');
-const { doHash, doHashValidation, hmacProcess } = require('../utils/hashing');
+const { doHash, doHashValidation } = require('../utils/hashing');
 const transport = require('../middlewares/sendMail');
 
-// This function handles user signup
+const logger = winston.createLogger({
+  transports: [new winston.transports.File({ filename: 'error.log', level: 'error' })],
+});
+
+// Signup
 exports.signup = async (req, res) => {
-	const { firstName, lastName, email, phoneNumber, registrantType, password, confirmPassword } = req.body;
-	try {
-		const { error, value } = signupSchema.validate({ firstName, lastName, email, phoneNumber, registrantType, password, confirmPassword});
+  try {
+    const { error } = signupSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
+    }
 
-		if (error) {
-			return res
-				.status(401)
-				.json({ success: false, message: error.details[0].message });
-		}
-		const existingUser = await User.findOne({ email });
+    const { firstName, lastName, email, phoneNumber, registrantType, password } = req.body;
 
-		if (existingUser) {
-			return res
-				.status(401)
-				.json({ success: false, message: 'User already exists!' });
-		}
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: 'Email already exists' });
+    }
 
-		const hashedPassword = await doHash(password, 12);
+    const hashedPassword = await doHash(password);
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const hashedVerificationToken = await bcrypt.hash(verificationToken, 10);
 
-		const newUser = new User({
-			firstName, lastName, email, phoneNumber, registrantType, password: hashedPassword, confirmPassword
-		});
-		const result = await newUser.save();
-		result.password = undefined;
-		res.status(201).json({
-			success: true,
-			message: 'Your account has been created successfully',
-			result,
-		});
-	} catch (error) {
-		console.log(error);
-	}
+    const newUser = new User({
+      firstName,
+      lastName,
+      email,
+      phoneNumber,
+      registrantType,
+      password: hashedPassword,
+      verificationCode: hashedVerificationToken,
+      verificationCodeValidation: Date.now(),
+    });
+
+    await newUser.save();
+
+    const verificationLink = `${process.env.APP_URL}/auth/verify-email?token=${verificationToken}&email=${encodeURIComponent(email)}`;
+    logger.info('Generated verification link:', verificationLink);
+
+    const mailOptions = {
+      from: 'no-reply@elearn.com',
+      to: email,
+      subject: 'Verify Your Email',
+      html: `Please verify your email by clicking the link below:<br><a href="${verificationLink}">Verify Email</a><br>Alternatively, log in and click "Verify Account" to receive a verification code or request a new link.`,
+    };
+
+    await transport(mailOptions);    logger.info('Verification email sent to:', email);
+
+    res.status(201).json({
+      success: true,
+      message: 'Account created. Please check your email to verify your account.',
+      result: { firstName, lastName, email, registrantType },
+    });
+  } catch (error) {
+    logger.error('Signup Error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
 };
 
-// This function handles user and admin signin
+// Signin
 exports.signin = async (req, res) => {
-	const { email, password } = req.body;
-	try {
-		const { error } = signinSchema.validate({ email, password });
-		if (error) {
-			return res.status(401).json({ success: false, message: error.details[0].message });
-		}
+  try {
+    const { error } = signinSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
+    }
 
-		const existingUser = await User.findOne({ email }).select('+password +role');
+    const { email, password } = req.body;
+    const user = await User.findOne({ email }).select('+password');
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'Invalid email or password' });
+    }
 
-		if (!existingUser) {
-			return res.status(401).json({ success: false, message: 'User does not exist!' });
-		}
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ success: false, message: 'Invalid email or password' });
+    }
 
-		
-		console.log('Existing User:', existingUser);
-
-		const isPasswordValid = await doHashValidation(password, existingUser.password);
-		if (!isPasswordValid) {
-			return res.status(401).json({ success: false, message: 'Invalid credentials!' });
-		}
-
-		const token = jwt.sign(
-			{
-				userId: existingUser._id,
-				email: existingUser.email,
-				role: existingUser.role, 
-				verified: existingUser.verified,
-			},
-			process.env.TOKEN_SECRET,
-			{ expiresIn: '8h' }
-		);
-
-		res
-			.cookie('Authorization', 'Bearer ' + token, {
-				expires: new Date(Date.now() + 8 * 3600000),
-				httpOnly: process.env.NODE_ENV === 'production',
-				secure: process.env.NODE_ENV === 'production',
-			})
-			.json({
-				success: true,
-				token,
-				role: existingUser.role,
-				message: 'Logged in successfully',
-			});
-	} catch (error) {
-		console.log(error);
-		res.status(500).json({ success: false, message: 'Something went wrong.' });
-	}
+    const token = jwt.sign({ userId: user._id }, process.env.TOKEN_SECRET, { expiresIn: '24h' });
+    res.status(200).json({
+      success: true,
+      message: 'Signed in successfully',
+      token,
+      user: { firstName: user.firstName, lastName: user.lastName, email: user.email, verified: user.verified }
+    });
+  } catch (error) {
+    logger.error('Signin Error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
 };
 
+// Send Verification Code
+exports.sendVerificationCode = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+    if (user.verified) {
+      return res.status(400).json({ success: false, message: 'Account already verified' });
+    }
+
+    const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const hashedCode = await bcrypt.hash(verificationCode, 10);
+
+    user.verificationCode = hashedCode;
+    user.verificationCodeValidation = Date.now();
+    await user.save();
+
+    const mailOptions = {
+      from: 'no-reply@elearn.com',
+      to: user.email,
+      subject: 'Your Verification Code',
+      html: `Your verification code is: <b>${verificationCode}</b><br>This code expires in 24 hours.`,
+    };
+
+    await transport(mailOptions);    logger.info('Verification code sent to:', user.email);
+
+    res.status(200).json({ success: true, message: 'Verification code sent to your email' });
+  } catch (error) {
+    logger.error('Send Verification Code Error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// Verify Verification Code
+exports.verifyVerificationCode = async (req, res) => {
+  try {
+    const { providedCode } = req.body;
+    if (!providedCode) {
+      return res.status(400).json({ success: false, message: 'Verification code is required' });
+    }
+
+    const user = await User.findById(req.user.userId).select('+verificationCode +verificationCodeValidation');
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+    if (user.verified) {
+      return res.status(400).json({ success: false, message: 'Account already verified' });
+    }
+
+    if (!user.verificationCode || !user.verificationCodeValidation) {
+      return res.status(400).json({ success: false, message: 'No valid verification code found' });
+    }
+
+    if (Date.now() - user.verificationCodeValidation > 24 * 60 * 60 * 1000) {
+      return res.status(400).json({ success: false, message: 'Verification code expired. Please request a new code or link.' });
+    }
+
+    const isValid = await bcrypt.compare(providedCode, user.verificationCode);
+    if (!isValid) {
+      return res.status(400).json({ success: false, message: 'Invalid verification code' });
+    }
+
+    user.verified = true;
+    user.verificationCode = undefined;
+    user.verificationCodeValidation = undefined;
+    await user.save();
+
+    res.status(200).json({ success: true, message: 'Email verified successfully' });
+  } catch (error) {
+    logger.error('Verify Verification Code Error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// Resend Verification Link (New)
+exports.resendVerificationLink = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId);
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+    if (user.verified) {
+      return res.status(400).json({ success: false, message: 'Account already verified' });
+    }
+
+    const verificationToken = crypto.randomBytes(32).toString('hex');
+    const hashedVerificationToken = await bcrypt.hash(verificationToken, 10);
+
+    user.verificationCode = hashedVerificationToken;
+    user.verificationCodeValidation = Date.now();
+    await user.save();
+
+    const verificationLink = `${process.env.APP_URL}/auth/verify-email?token=${verificationToken}&email=${encodeURIComponent(user.email)}`;
+    logger.info('Generated verification link:', verificationLink);
+
+    const mailOptions = {
+      from: 'no-reply@elearn.com',
+      to: user.email,
+      subject: 'Verify Your Email',
+      html: `Please verify your email by clicking the link below:<br><a href="${verificationLink}">Verify Email</a><br>This link expires in 24 hours.`,
+    };
+
+    await transport(mailOptions);    logger.info('Verification link sent to:', user.email);
+
+    res.status(200).json({ success: true, message: 'Verification link sent to your email' });
+  } catch (error) {
+    logger.error('Resend Verification Link Error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+// Verify Email 
+exports.verifyEmail = async (req, res) => {
+  const { token, email } = req.query;
+  try {
+    if (!token || !email) {
+      return res.status(400).json({ success: false, message: 'Invalid or missing verification token or email' });
+    }
+
+    const existingUser = await User.findOne({ email }).select('+verificationCode +verificationCodeValidation');
+    if (!existingUser) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+
+    if (existingUser.verified) {
+      return res.status(400).json({ success: false, message: 'Account already verified' });
+    }
+
+    if (!existingUser.verificationCode || !existingUser.verificationCodeValidation) {
+      return res.status(400).json({ success: false, message: 'No valid verification token found' });
+    }
+
+    if (Date.now() - existingUser.verificationCodeValidation > 24 * 60 * 60 * 1000) {
+      return res.status(400).json({ success: false, message: 'Verification token expired. Please log in and request a new code or link.' });
+    }
+
+    const isValid = await bcrypt.compare(token, existingUser.verificationCode);
+    if (!isValid) {
+      return res.status(400).json({ success: false, message: 'Invalid verification token' });
+    }
+
+    existingUser.verified = true;
+    existingUser.verificationCode = undefined;
+    existingUser.verificationCodeValidation = undefined;
+    await existingUser.save();
+
+    const redirectUrl = process.env.FRONTEND_URL
+      ? `${process.env.FRONTEND_URL}/verification-success`
+      : 'http://localhost:3001/verification-success';
+    
+    logger.info('User verified. Suggested redirect to:', redirectUrl);
+
+    // Always return JSON to avoid redirect issues in Postman/API clients
+    return res.status(200).json({
+      success: true,
+      message: 'Email verified successfully',
+      redirectUrl,
+    });
+
+  } catch (error) {
+    logger.error('Verify Email Error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
+
+
+// Get Current User
+exports.getCurrentUser = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.userId).select('email verified');
+    if (!user) {
+      return res.status(400).json({ success: false, message: 'User not found' });
+    }
+    res.status(200).json({ success: true, user });
+  } catch (error) {
+    logger.error('Get Current User Error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
+};
 
 // This function handles user signout
 exports.signout = async (req, res) => {
@@ -102,257 +287,123 @@ exports.signout = async (req, res) => {
 		.json({ success: true, message: 'logged out successfully' });
 };
 
-// This function handles sending verification code to the user
-exports.sendVerificationCode = async (req, res) => {
-    const { email } = req.body;
-    try {
-        const existingUser = await User.findOne({ email });
-        if (!existingUser) {
-            return res
-                .status(404)
-                .json({ success: false, message: 'User does not exist!' });
-        }
-        if (existingUser.verified) {
-            return res
-                .status(400)
-                .json({ success: false, message: 'You are already verified!' });
-        }
-
-        // Generate a 6-digit verification code
-        const codeValue = Math.floor(100000 + Math.random() * 900000).toString();
-
-        // Send the verification email
-        await transport({
-            to: existingUser.email,
-            subject: 'Verification Code',
-            html: `<p>Your verification code is:  <strong> ${codeValue} </strong></p>`,
-        });
-
-        // Hash the verification code and save it to the user
-        const hashedCodeValue = hmacProcess(
-            codeValue,
-            process.env.HMAC_VERIFICATION_CODE_SECRET
-        );
-        existingUser.verificationCode = hashedCodeValue;
-        existingUser.verificationCodeValidation = Date.now();
-        await existingUser.save();
-
-        return res.status(200).json({ success: true, message: 'Verification code sent successfully!' });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ success: false, message: 'Failed to send verification code', error });
-    }
-};
-
-// This function handles verifying the verification code sent to the user
-exports.verifyVerificationCode = async (req, res) => {
-	const { email, providedCode } = req.body;
-	try {
-		const { error, value } = acceptCodeSchema.validate({ email, providedCode });
-		if (error) {
-			return res
-				.status(401)
-				.json({ success: false, message: error.details[0].message });
-		}
-
-		const codeValue = providedCode.toString();
-		const existingUser = await User.findOne({ email }).select(
-			'+verificationCode +verificationCodeValidation'
-		);
-
-		if (!existingUser) {
-			return res
-				.status(401)
-				.json({ success: false, message: 'User does not exists!' });
-		}
-		if (existingUser.verified) {
-			return res
-				.status(400)
-				.json({ success: false, message: 'You are already verified!' });
-		}
-
-		if (
-			!existingUser.verificationCode ||
-			!existingUser.verificationCodeValidation
-		) {
-			return res
-				.status(400)
-				.json({ success: false, message: 'Something is wrong with the code!' });
-		}
-
-		if (Date.now() - existingUser.verificationCodeValidation > 5 * 60 * 1000) {
-			return res
-				.status(400)
-				.json({ success: false, message: 'Code has expired!' });
-		}
-
-		const hashedCodeValue = hmacProcess(
-			codeValue,
-			process.env.HMAC_VERIFICATION_CODE_SECRET
-		);
-
-		if (hashedCodeValue === existingUser.verificationCode) {
-			existingUser.verified = true;
-			existingUser.verificationCode = undefined;
-			existingUser.verificationCodeValidation = undefined;
-			await existingUser.save();
-			return res
-				.status(200)
-				.json({ success: true, message: 'Your account has been verified!' });
-		}
-		return res
-			.status(400)
-			.json({ success: false, message: 'Unexpected occured!!' });
-	} catch (error) {
-		console.log(error);
-	}
-};
-
 // This function handles changing the user's password
 exports.changePassword = async (req, res) => {
-	const { userId, verified } = req.user;
-	const { oldPassword, newPassword } = req.body;
-	try {
-		const { error, value } = changePasswordSchema.validate({
-			oldPassword,
-			newPassword,
-		});
-		if (error) {
-			return res
-				.status(401)
-				.json({ success: false, message: error.details[0].message });
-		}
-		if (!verified) {
-			return res
-				.status(401)
-				.json({ success: false, message: 'You are not verified user!' });
-		}
-		console.log('REQ.USER:', req.user);
-		const existingUser = await User.findOne({ _id: userId }).select(
-			'+password'
-		);
-		if (!existingUser) {
-			return res
-				.status(401)
-				.json({ success: false, message: 'User does not exists!' });
-		}
-		const result = await doHashValidation(oldPassword, existingUser.password);
-		if (!result) {
-			return res
-				.status(401)
-				.json({ success: false, message: 'Invalid credentials!' });
-		}
-		const hashedPassword = await doHash(newPassword, 12);
-		existingUser.password = hashedPassword;
-		await existingUser.save();
-		return res
-			.status(200)
-			.json({ success: true, message: 'Password updated!!' });
-	} catch (error) {
-		console.log(error);
-	}
-};
-
-// This function handles sending a forgot password code to the user
-exports.sendForgotPasswordCode = async (req, res) => {
-    const { email } = req.body;
-    try {
-        const existingUser = await User.findOne({ email });
-        if (!existingUser) {
-            return res
-                .status(404)
-                .json({ success: false, message: 'User does not exist!' });
-        }
-
-        // Generate a 6-digit forgot password code
-        const codeValue = Math.floor(100000 + Math.random() * 900000).toString();
-
-        // Send the forgot password email
-        await transport({
-            to: existingUser.email,
-            subject: 'Reset Password Code',	
-			html: `<p>Your password reset code is:  <strong> ${codeValue} </strong></p>`,		
-        });
-
-        // Hash the forgot password code and save it to the user
-        const hashedCodeValue = hmacProcess(
-            codeValue,
-            process.env.HMAC_VERIFICATION_CODE_SECRET
-        );
-        existingUser.forgotPasswordCode = hashedCodeValue;
-        existingUser.forgotPasswordCodeValidation = Date.now();
-        await existingUser.save();
-
-        return res.status(200).json({ success: true, message: 'Code sent!' });
-    } catch (error) {
-        console.error(error);
-        res.status(500).json({ success: false, message: 'Failed to send code', error });
+  const { userId, verified } = req.user;
+  const { oldPassword, newPassword, confirmNewPassword } = req.body;
+  try {
+    const { error } = changePasswordSchema.validate({ oldPassword, newPassword, confirmNewPassword });
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
     }
+    if (!userId || !verified) {
+      return res.status(401).json({ success: false, message: 'Unauthorized or unverified user' });
+    }
+
+    const existingUser = await User.findOne({ _id: userId }).select('+password +tokenVersion');
+    if (!existingUser) {
+      return res.status(401).json({ success: false, message: 'User not found' });
+    }
+    if (!(await doHashValidation(oldPassword, existingUser.password))) {
+      return res.status(401).json({ success: false, message: 'Incorrect old password' });
+    }
+
+    // Update password and increment tokenVersion
+    const hashedPassword = await doHash(newPassword, 12);
+    existingUser.password = hashedPassword;
+    existingUser.tokenVersion += 1;
+    await existingUser.save();
+
+    // Generate a new JWT with updated tokenVersion
+    const newToken = jwt.sign(
+      {
+        userId: existingUser._id,
+        email: existingUser.email,
+        role: existingUser.role,
+        verified: existingUser.verified,
+        tokenVersion: existingUser.tokenVersion,
+      },
+      process.env.TOKEN_SECRET,
+      { expiresIn: process.env.JWT_EXPIRES_IN || '24h' } // Default to 24 hours if not set
+    );
+
+    // Send new token to client
+    return res.status(200).json({
+      success: true,
+      message: 'Password updated',
+      token: newToken,
+    });
+  } catch (error) {
+    logger.error('Change Password Error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
 };
 
-// This function handles verifying the forgot password code sent to the user
+// Send Forgot Password Code
+exports.sendForgotPasswordCode = async (req, res) => {
+  const { email } = req.body;
+  try {
+    const existingUser = await User.findOne({ email });
+    if (!existingUser) {
+      return res.status(400).json({ success: false, message: 'Invalid email' });
+    }
+
+    const codeValue = crypto.randomBytes(3).toString('hex').toUpperCase();
+    const hashedCodeValue = await bcrypt.hash(codeValue, 10);
+
+    await transport({
+      to: existingUser.email,
+      subject: 'Reset Password Code',
+      html: `<p>Your password reset code is: <strong>${codeValue}</strong></p>`,
+    });
+
+    existingUser.forgotPasswordCode = hashedCodeValue;
+    existingUser.forgotPasswordCodeValidation = Date.now();
+    await existingUser.save();
+
+    return res.status(200).json({ success: true, message: 'Password reset code sent' });
+  } catch (error) {
+    logger.error('Send Forgot Password Code Error:', error);
+    res.status(500).json({ success: false, message: 'Failed to send code', error: error.message });
+  }
+};
+
+// Verify Forgot Password Code
 exports.verifyForgotPasswordCode = async (req, res) => {
-	const { email, providedCode, newPassword } = req.body;
-	try {
-		const { error, value } = acceptFPCodeSchema.validate({
-			email,
-			providedCode,
-			newPassword,
-		});
-		if (error) {
-			return res
-				.status(401)
-				.json({ success: false, message: error.details[0].message });
-		}
+  const { email, providedCode, newPassword } = req.body;
+  try {
+    const { error } = acceptFPCodeSchema.validate({ email, providedCode, newPassword });
+    if (error) {
+      return res.status(400).json({ success: false, message: error.details[0].message });
+    }
 
-		const codeValue = providedCode.toString();
-		const existingUser = await User.findOne({ email }).select(
-			'+forgotPasswordCode +forgotPasswordCodeValidation'
-		);
+    const existingUser = await User.findOne({ email }).select('+forgotPasswordCode +forgotPasswordCodeValidation +tokenVersion');
+    if (!existingUser) {
+      return res.status(400).json({ success: false, message: 'Invalid email' });
+    }
 
-		if (!existingUser) {
-			return res
-				.status(401)
-				.json({ success: false, message: 'User does not exists!' });
-		}
+    if (!existingUser.forgotPasswordCode || !existingUser.forgotPasswordCodeValidation) {
+      return res.status(400).json({ success: false, message: 'No valid code found' });
+    }
 
-		if (
-			!existingUser.forgotPasswordCode ||
-			!existingUser.forgotPasswordCodeValidation
-		) {
-			return res
-				.status(400)
-				.json({ success: false, message: 'something is wrong with the code!' });
-		}
+    if (Date.now() - existingUser.forgotPasswordCodeValidation > 5 * 60 * 1000) {
+      return res.status(400).json({ success: false, message: 'Code expired. Request a new one.' });
+    }
 
-		if (
-			Date.now() - existingUser.forgotPasswordCodeValidation >
-			5 * 60 * 1000
-		) {
-			return res
-				.status(400)
-				.json({ success: false, message: 'code has been expired!' });
-		}
+    const isValid = await bcrypt.compare(providedCode.toString(), existingUser.forgotPasswordCode);
+    if (isValid) {
+      const hashedPassword = await doHash(newPassword, 12);
+      existingUser.password = hashedPassword;
+      existingUser.forgotPasswordCode = undefined;
+      existingUser.forgotPasswordCodeValidation = undefined;
+      existingUser.tokenVersion += 1;
+      await existingUser.save();
+      return res.status(200).json({ success: true, message: 'Password updated' });
+    }
 
-		const hashedCodeValue = hmacProcess(
-			codeValue,
-			process.env.HMAC_VERIFICATION_CODE_SECRET
-		);
-
-		if (hashedCodeValue === existingUser.forgotPasswordCode) {
-			const hashedPassword = await doHash(newPassword, 12);
-			existingUser.password = hashedPassword;
-			existingUser.forgotPasswordCode = undefined;
-			existingUser.forgotPasswordCodeValidation = undefined;
-			await existingUser.save();
-			return res
-				.status(200)
-				.json({ success: true, message: 'Password updated!!' });
-		}
-		return res
-			.status(400)
-			.json({ success: false, message: 'unexpected occured!!' });
-	} catch (error) {
-		console.log(error);
-	}
+    return res.status(400).json({ success: false, message: 'Invalid code' });
+  } catch (error) {
+    logger.error('Verify Forgot Password Code Error:', error);
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
+  }
 };

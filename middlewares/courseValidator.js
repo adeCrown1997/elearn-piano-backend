@@ -43,7 +43,6 @@ exports.moduleCreationSchema = Joi.object({
 		'string.length': 'Invalid course ID format!',
 		'any.required': 'Course ID is required!',
 	  }),
-  
 	title: Joi.string()
 	  .min(3)
 	  .required()
@@ -51,7 +50,6 @@ exports.moduleCreationSchema = Joi.object({
 		'string.empty': 'Module title is required!',
 		'string.min': 'Module title must be at least 3 characters!',
 	  }),
-  
 	description: Joi.string()
 	  .min(10)
 	  .required()
@@ -59,44 +57,60 @@ exports.moduleCreationSchema = Joi.object({
 		'string.empty': 'Module description is required!',
 		'string.min': 'Module description must be at least 10 characters!',
 	  }),
+	order: Joi.number()
+	  .min(1)
+	  .required()
+	  .messages({
+		'number.min': 'Order must be at least 1!',
+		'any.required': 'Order is required!',
+	  }),
   });
   
 // Content Creation Validator
 exports.contentCreationSchema = Joi.object({
+	title: Joi.string()
+	  .min(3)
+	  .required()
+	  .messages({
+		'string.empty': 'Content title is required!',
+		'string.min': 'Content title must be at least 3 characters!',
+	  }),
 	moduleId: Joi.string()
-		.length(24)
-		.required()
-		.messages({
-			'string.length': 'Invalid module ID format!',
-			'any.required': 'Module ID is required!',
-		}),
-
+	  .length(24)
+	  .required()
+	  .messages({
+		'string.length': 'Invalid module ID format!',
+		'any.required': 'Module ID is required!',
+	  }),
 	type: Joi.string()
-		.valid('text', 'image')
-		.required()
-		.messages({
-			'any.only': 'Type must be either "text" or "image"',
-			'any.required': 'Content type is required!',
-		}),
-
+	  .valid('text', 'image')
+	  .required()
+	  .messages({
+		'any.only': 'Type must be either "text" or "image"',
+		'any.required': 'Content type is required!',
+	  }),
 	richText: Joi.string()
-		.allow('')
-		.optional(),
-
+	  .allow('')
+	  .optional(),
 	imageUrl: Joi.string()
-		.uri()
-		.allow('')
-		.optional()
-		.messages({
-			'string.uri': 'Image URL must be a valid URL!',
-		}),
-
+	  .uri()
+	  .allow('')
+	  .optional()
+	  .messages({
+		'string.uri': 'Image URL must be a valid URL!',
+	  }),
 	youtubeEmbedUrl: Joi.string()
-		.uri()
-		.allow('')
-		.optional()
-		.messages({
-			'string.uri': 'YouTube embed link must be a valid URL!',
-		}),
-});
-
+	  .uri()
+	  .allow('')
+	  .optional()
+	  .messages({
+		'string.uri': 'YouTube embed link must be a valid URL!',
+	  }),
+	order: Joi.number()
+	  .min(1)
+	  .required()
+	  .messages({
+		'number.min': 'Order must be at least 1!',
+		'any.required': 'Order is required!',
+	  }),
+  });

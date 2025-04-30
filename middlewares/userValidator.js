@@ -68,7 +68,7 @@ exports.acceptCodeSchema = Joi.object({
 		.email({
 			tlds: { allow: ['com', 'net'] },
 		}),
-	providedCode: Joi.number().required(),
+	providedCode: Joi.string().required(),
 });
 
 // Validation schema for changing password
@@ -83,7 +83,15 @@ exports.changePasswordSchema = Joi.object({
         .max(60)
 		.required()
 		.pattern(new RegExp(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/)),
-
+    confirmNewPassword: Joi.string()
+        .valid(Joi.ref('newPassword'))
+        .min(8)
+        .max(30)
+        .required()
+        .pattern(new RegExp(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/)) // Alphanumeric characters only,
+        .messages({
+        'any.only': 'Passwords do not match'
+    }),
 });
 
 // Validation schema for sending forgot password code
@@ -95,7 +103,7 @@ exports.acceptFPCodeSchema = Joi.object({
 		.email({
 			tlds: { allow: ['com', 'net'] },
 		}),
-	providedCode: Joi.number().required(),
+	providedCode: Joi.string().required(),
 	newPassword: Joi.string()
 		.required()
 		.pattern(new RegExp(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).{8,}$/)),
